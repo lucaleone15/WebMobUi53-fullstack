@@ -44,7 +44,8 @@ Le système de sondage attendu repose notamment sur les fonctionnalités UI suiv
 
 À l'issue de ce travail pratique, les étudiants devraient être capables de :
 
-- concevoir et développer une application web complète de type SPA
+- concevoir et développer une application web frontend complète avec Vue.js, organisée de manière
+  cohérente selon l'architecture retenue
 - implémenter et consommer une API JSON versionnée
 - exploiter des modèles relationnels déjà fournis pour construire des fonctionnalités cohérentes
 - créer un frontend réactif pour gérer un tableau de bord, un éditeur et des vues de
@@ -60,10 +61,30 @@ Vous développerez une application web en deux parties :
 - Frontend Vue.js : responsable de l'affichage et des interactions autour des sondages, utilisable
   sur navigateur et mobile, avec une approche mobile first
 
+L'architecture frontend est libre : il est possible de réaliser soit une seule application Vue.js
+couvrant l'ensemble des usages, soit plusieurs applications Vue.js distinctes (par exemple une pour
+le dashboard et une pour la consultation, le vote et la visualisation des résultats), à condition
+que l'ensemble reste cohérent, maintenable et bien intégré au backend.
+
 Les modèles sont déjà fournis. Vous devez construire autour de ceux-ci les fonctionnalités utiles au
 frontend. Les modèles existants permettent naturellement de représenter plusieurs choix pour un même sondage.
 Par conséquent, lorsqu'un sondage est configuré en choix unique, l'unicité du vote doit être
 garantie à la fois côté frontend et côté API.
+
+Fonctionnalités attendues :
+
+- afficher la liste des sondages de la personne connectée
+- permettre la création, l'édition et la suppression d'un sondage depuis le frontend
+- gérer les options d'un sondage
+- gérer les paramètres du sondage (brouillon, lancement, choix simple ou multiple, changement de vote,
+  résultats publics, dates ou durée)
+- permettre au créateur d'obtenir facilement le lien de partage contenant le token
+- afficher un sondage accessible via un token
+- permettre à une personne authentifiée de voter via ce lien
+- empêcher le vote après la date de fin d'un sondage avec durée, avec un affichage clair de cet état
+- permettre l'accès anonyme aux résultats uniquement lorsqu'ils sont publics
+- afficher les résultats via polling avec un aperçu graphique visualisant leur évolution
+- garantir côté frontend et côté API l'unicité du vote pour les sondages à choix unique
 
 La structure exacte de l'interface est libre, à condition que l'application reste claire,
 fonctionnelle et cohérente.
@@ -86,21 +107,23 @@ Note maximale : `(nombre de points obtenus / nombre de points maximum) x 5 + 1`
 
 ## Critères frontend et endpoints JSON
 
+Les informations ci-dessous sont à titre indicatif et peuvent être adaptées.
+
 ### Critères rendu
 
 | # | Critère |
 | --- | --- |
 | 1 | Affichage d'un dashboard des sondages de la personne connectée
-| 2 | Création ou édition d'un sondage depuis le frontend
+| 2 | Création, édition et suppression d'un sondage depuis le frontend
 | 3 | Gestion des options du sondage (ajout, modification, suppression)
-| 4 | Gestion des paramètres du sondage (brouillon, choix multiples, changement de vote, résultats publics, dates)
-| 5 | Affichage d'un sondage accessible via un token
-| 6 | Soumission d'un vote valide depuis le frontend
-| 7 | Affichage conditionnel correct selon l'état du sondage et les droits d'accès
+| 4 | Gestion des paramètres du sondage (brouillon, choix multiples, changement de vote, résultats publics, durée)
+| 5 | Récupération simple du lien de partage contenant le token et affichage d'un sondage accessible via ce lien
+| 6 | Soumission d'un vote valide depuis le frontend, avec unicité correctement garantie pour les sondages à choix unique
+| 7 | Affichage conditionnel correct selon l'état du sondage, la date de fin et les droits d'accès, y compris l'accès anonyme aux résultats publics
 | 8 | Consommation correcte des endpoints JSON par le frontend
 | 9 | Gestion correcte des erreurs utilisateur côté frontend
 | 10 | Interface lisible, claire, responsive et agréable à utiliser
-| 11 | Affichage en temps réel, via polling, des résultats
+| 11 | Affichage en temps réel, via polling, des résultats, avec aperçu graphique
 | 12 | Le projet est fonctionnel de bout en bout
 | 13 | Code lisible, structuré, `README` clair et utilisation correcte du contrôle de version
 | 14 | Bon usage des composants Vue, des composables et d'une architecture cohérente du code
@@ -108,8 +131,6 @@ Note maximale : `(nombre de points obtenus / nombre de points maximum) x 5 + 1`
 
 
 ## Critères présentation
-
-Les informations ci-dessous sont à titre indicatif et peuvent être adaptées.
 
 | # | Critère |
 | --- | --- |
