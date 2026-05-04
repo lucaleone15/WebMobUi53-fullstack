@@ -139,7 +139,7 @@ class DatabaseSeeder extends Seeder
                     ]
                 ]);
 
-                // Insert a test poll for John Doe
+                // Insert a test poll for johndoe
                 DB::table('polls')->insert([
                     'id' => 1,
                     'user_id' => 1,
