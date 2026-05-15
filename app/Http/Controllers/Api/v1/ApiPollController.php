@@ -4,116 +4,125 @@ namespace App\Http\Controllers\Api\v1;
 
 use App\Http\Controllers\Controller;
 use App\Models\Poll;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
-
 class ApiPollController extends Controller
 {
-    /**
-     * Display a listing of the authenticated user's polls.
-     */
-    public function index(Request $request)
+    private const POLL_RULES = [
+        'title'                  => 'nullable|string|max:255',
+        'question'               => 'required|string|max:1000',
+        'options'                => 'array|min:1',
+        'options.*.label'        => 'required|string|max:500',
+        'is_draft'               => 'boolean',
+        'allow_multiple_choices' => 'boolean',
+        'allow_vote_change'      => 'boolean',
+        'results_public'         => 'boolean',
+        'started_at'             => 'nullable|date',
+        'ends_at'                => 'nullable|date|after:started_at',
+    ];
+
+    public function index(Request $request): JsonResponse
     {
         $polls = $request->user()
             ->polls()
-            ->with(['options' => function ($query) {
-                $query->withCount('votes');
-            }])
-            ->orderBy('created_at', 'desc')
+            ->with(['options' => fn($q) => $q->withCount('votes')])
+            ->orderByDesc('created_at')
             ->get();
 
-        return $polls;
+        return response()->json($polls);
     }
 
-    /**
-     * Display the specified poll by its secret token.
-     */
-    public function show(string $token)
+    public function show(string $token): JsonResponse
     {
-        $poll = Poll::with(['options' => function ($query) {
-            $query->withCount('votes');
-        }])->where('secret_token', $token)->first();
+        $poll = Poll::with(['options' => fn($q) => $q->withCount('votes')])
+            ->where('secret_token', $token)
+            ->firstOrFail();
 
-        if (!$poll) {
-            return response()->json(['message' => 'Poll not found.'], 404);
+        $user          = auth()->user();
+        $isOwner       = $user && $user->id === $poll->user_id;
+        $userVoteIds   = $user
+            ? $poll->votes()->where('user_id', $user->id)->pluck('poll_option_id')->all()
+            : [];
+        $hasVoted      = ! empty($userVoteIds);
+        $canSeeResults = $poll->results_public || $hasVoted || $isOwner;
+
+        if (! $canSeeResults) {
+            $poll->options->each(fn($o) => $o->votes_count = 0);
         }
 
-        return $poll;
+        return response()->json([
+            ...$poll->toArray(),
+            'total_votes'          => $canSeeResults ? $poll->options->sum('votes_count') : 0,
+            'user_has_voted'       => $hasVoted,
+            'user_vote_option_ids' => $userVoteIds,
+            'user_is_owner'        => $isOwner,
+        ]);
     }
 
-    public function store(Request $request)
+    public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'title' => 'nullable|string|max:255',
+            ...self::POLL_RULES,
             'question' => 'required|string|max:1000',
-            'is_draft' => 'boolean',
-            'allow_multiple_choices' => 'boolean',
-            'allow_vote_change' => 'boolean',
-            'results_public' => 'boolean',
-            'duration' => 'nullable|integer|min:0',
-            'started_at' => 'nullable|date',
-            'ends_at' => 'nullable|date|after_or_equal:started_at',
+            'options'  => 'required|array|min:1',
         ]);
 
-        $poll = new Poll();
-        $poll->user_id = $request->user()->id;
-        $poll->title = $validated['title'] ?? null;
-        $poll->question = $validated['question'];
-        $poll->secret_token = Str::random(32);
-        $poll->is_draft = $validated['is_draft'] ?? true;
-        $poll->allow_multiple_choices = $validated['allow_multiple_choices'] ?? false;
-        $poll->allow_vote_change = $validated['allow_vote_change'] ?? false;
-        $poll->results_public = $validated['results_public'] ?? false;
-        $poll->duration = $validated['duration'] ?? null;
-        $poll->started_at = $validated['started_at'] ?? null;
-        $poll->ends_at = $validated['ends_at'] ?? null;
-        $poll->save();
-
-        return $poll;
-    }
-
-    public function update(Request $request, Poll $poll)
-    {
-        if ($poll->user_id !== $request->user()->id) {
-            abort(403);
-        }
-
-        $validated = $request->validate([
-            'title' => 'nullable|string|max:255',
-            'question' => 'required|string|max:1000',
-            'is_draft' => 'boolean',
-            'allow_multiple_choices' => 'boolean',
-            'allow_vote_change' => 'boolean',
-            'results_public' => 'boolean',
-            'duration' => 'nullable|integer|min:0',
-            'started_at' => 'nullable|date',
-            'ends_at' => 'nullable|date|after_or_equal:started_at',
+        $poll = Poll::create([
+            ...$validated,
+            'user_id'      => $request->user()->id,
+            'secret_token' => Str::random(32),
+            'is_draft'     => $validated['is_draft'] ?? true,
         ]);
 
-        $poll->title = $validated['title'] ?? $poll->title;
-        $poll->question = $validated['question'] ?? $poll->question;
-        $poll->is_draft = $validated['is_draft'] ?? $poll->is_draft;
-        $poll->allow_multiple_choices = $validated['allow_multiple_choices'] ?? $poll->allow_multiple_choices;
-        $poll->allow_vote_change = $validated['allow_vote_change'] ?? $poll->allow_vote_change;
-        $poll->results_public = $validated['results_public'] ?? $poll->results_public;
-        $poll->duration = $validated['duration'] ?? $poll->duration;
-        $poll->started_at = $validated['started_at'] ?? $poll->started_at;
-        $poll->ends_at = $validated['ends_at'] ?? $poll->ends_at;
-        $poll->save();
+        $this->syncOptions($poll, $validated['options']);
 
-        return $poll;
+        return response()->json($poll->load('options'), 201);
     }
 
-    public function destroy(Request $request, Poll $poll)
+    public function update(Request $request, Poll $poll): JsonResponse
     {
-        if ($poll->user_id !== $request->user()->id) {
-            return response()->json(['message' => 'Unauthorized.'], 403);
+        abort_if($poll->user_id !== $request->user()->id, 403);
+
+        $validated = $request->validate(self::POLL_RULES);
+
+        $poll->fill($validated)->save();
+
+        if (isset($validated['options'])) {
+            $this->syncOptions($poll, $validated['options']);
         }
 
+        return response()->json($poll->load('options'));
+    }
+
+    public function launch(Request $request, Poll $poll): JsonResponse
+    {
+        abort_if($poll->user_id !== $request->user()->id, 403);
+        abort_if(! $poll->is_draft, 422, 'Ce sondage est déjà lancé.');
+
+        $poll->is_draft   = false;
+        $poll->started_at ??= now();
+        $poll->save();
+
+        return response()->json($poll->load('options'));
+    }
+
+    public function destroy(Request $request, Poll $poll): JsonResponse
+    {
+        abort_if($poll->user_id !== $request->user()->id, 403);
         $poll->delete();
 
-        return response()->json(['message' => 'Poll deleted successfully.']);
-        // return response()->noContent();
+        return response()->json(['message' => 'Sondage supprimé.']);
+    }
+
+    // --- Méthodes privées ---
+
+    private function syncOptions(Poll $poll, array $options): void
+    {
+        $poll->options()->delete();
+        $poll->options()->createMany(
+            array_map(fn($o) => ['label' => $o['label']], $options)
+        );
     }
 }

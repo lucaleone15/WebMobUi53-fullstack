@@ -5,69 +5,50 @@ import { usePolling } from './usePolling';
 export function usePollDashboard(loginUrl) {
     const { fetchApiToRef, fetchApi } = useFetchApi();
 
-    const {
-        data: pollsData,
-        error: pollsError,
-        loading: pollsLoading,
-        fetchNow,
-    } = fetchApiToRef({ url: 'polls' });
+    const { data: polls, error, loading, fetchNow } = fetchApiToRef({ url: 'polls' });
 
-    const drafts = computed(() =>
-        (pollsData.value || []).filter((poll) => poll.is_draft),
-    );
+    // Utilise les champs calculés par le backend pour éviter toute divergence
+    const drafts = computed(() => (polls.value ?? []).filter(p => p.is_draft));
+    const scheduled = computed(() => (polls.value ?? []).filter(p => !p.is_draft && !p.has_started && !p.has_ended));
+    const active = computed(() => (polls.value ?? []).filter(p => !p.is_draft && p.has_started && !p.has_ended));
+    const ended = computed(() => (polls.value ?? []).filter(p => p.has_ended));
 
-    const active = computed(() =>
-        (pollsData.value || []).filter(
-            (poll) =>
-                !poll.is_draft &&
-                poll.started_at &&
-                (!poll.ends_at || new Date(poll.ends_at) > new Date()),
-        ),
-    );
-
-    const ended = computed(() =>
-        (pollsData.value || []).filter(
-            (poll) => poll.ends_at && new Date(poll.ends_at) <= new Date(),
-        ),
-    );
-
-    function handleError(err) {
+    watch(error, (err) => {
         if (!err) return;
-        if (err?.status === 401 && loginUrl) {
-            window.location.href = loginUrl;
-        } else {
-            console.error(err);
+        if (err?.status === 401 && loginUrl) window.location.href = loginUrl;
+        else console.error(err);
+    });
+
+    const mutationError = ref(null);
+    const isMutating = ref(false);
+
+    usePolling(() => { if (!isMutating.value) fetchNow(); }, 10000);
+
+    async function mutate(request, fallbackMessage) {
+        mutationError.value = null;
+        isMutating.value = true;
+        try {
+            await request();
+            await fetchApi({ url: 'polls' }).then(res => { polls.value = res; });
+        } catch (err) {
+            mutationError.value = err?.data?.message ?? fallbackMessage;
+            throw err;
+        } finally {
+            isMutating.value = false;
         }
     }
 
-    watch(pollsError, handleError);
-    usePolling(fetchNow, 10000);
+    const createPoll = (payload) =>
+        mutate(() => fetchApi({ url: 'polls', method: 'POST', data: payload }), 'Erreur lors de la création.');
 
-    async function createPoll(payload) {
-        await fetchApi({ url: 'polls', method: 'POST', data: payload });
-        await fetchNow();
-    }
+    const updatePoll = (id, payload) =>
+        mutate(() => fetchApi({ url: `polls/${id}`, method: 'PUT', data: payload }), 'Erreur lors de la mise à jour.');
 
-    async function updatePoll(id, payload) {
-        await fetchApi({ url: `polls/${id}`, method: 'PUT', data: payload });
-        await fetchNow();
-    }
+    const deletePoll = (id) =>
+        mutate(() => fetchApi({ url: `polls/${id}`, method: 'DELETE' }), 'Erreur lors de la suppression.');
 
-    async function deletePoll(id) {
-        await fetchApi({ url: `polls/${id}`, method: 'DELETE' });
-        await fetchNow();
-    }
+    const launchPoll = (id) =>
+        mutate(() => fetchApi({ url: `polls/${id}/launch`, method: 'POST' }), 'Erreur lors du lancement.');
 
-    return {
-        pollsData,
-        pollsError,
-        pollsLoading,
-        drafts,
-        active,
-        ended,
-        fetchNow,
-        createPoll,
-        updatePoll,
-        deletePoll,
-    };
+    return { polls, error, loading, mutationError, drafts, scheduled, active, ended, fetchNow, createPoll, updatePoll, deletePoll, launchPoll };
 }

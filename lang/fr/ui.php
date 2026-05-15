@@ -230,4 +230,10 @@ return [
             'author' => 'Publié par :first_name :last_name',
         ],
     ],
+    'polls' => [
+        'dashboard' => [
+            'title' => 'Tableau de bord des sondages',
+            'description' => 'Gérez vos sondages et voyez les résultats sur :app_name.',
+        ],
+    ],
 ];

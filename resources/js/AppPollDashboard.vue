@@ -1,56 +1,55 @@
 <script setup>
-import { ref, computed } from "vue";
-import PollTable from "./components/PollTable.vue";
+import { ref } from "vue";
+import PollSection from "./components/PollSection.vue";
 import PollForm from "./components/PollForm.vue";
 import { usePollDashboard } from "./composables/usePollDashboard";
 
 const props = defineProps({
-    polls: { type: Array, default: () => [] },
     loginUrl: { type: String, default: null },
 });
 
 const {
-    pollsData,
-    pollsError,
-    pollsLoading,
+    polls,
+    error,
+    loading,
+    mutationError,
     drafts,
+    scheduled,
     active,
     ended,
     createPoll,
     updatePoll,
     deletePoll,
+    launchPoll,
 } = usePollDashboard(props.loginUrl);
 
 const showForm = ref(false);
 const editingPoll = ref(null);
 
-function openCreate() {
-    editingPoll.value = null;
-    showForm.value = true;
-}
-
-function openEdit(poll) {
+function openEdit(poll = null) {
     editingPoll.value = poll;
     showForm.value = true;
 }
 
-function closeForm() {
-    showForm.value = false;
-}
-
 async function savePoll(payload) {
-    if (editingPoll.value) {
-        await updatePoll(editingPoll.value.id, payload);
-    } else {
-        await createPoll(payload);
+    try {
+        await (editingPoll.value
+            ? updatePoll(editingPoll.value.id, payload)
+            : createPoll(payload));
+        showForm.value = false;
+    } catch {
+        // mutationError est affiché dans le template
     }
-
-    closeForm();
 }
 
 async function removePoll(poll) {
     if (!confirm("Supprimer ce sondage ?")) return;
     await deletePoll(poll.id);
+}
+
+async function launch(poll) {
+    if (!confirm(`Lancer "${poll.question}" maintenant ?`)) return;
+    await launchPoll(poll.id);
 }
 </script>
 
@@ -70,7 +69,7 @@ async function removePoll(poll) {
                 </div>
                 <button
                     type="button"
-                    @click="openCreate"
+                    @click="openEdit()"
                     class="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
                 >
                     Créer un sondage
@@ -79,33 +78,39 @@ async function removePoll(poll) {
 
             <PollForm
                 v-if="showForm"
-                :initialData="editingPoll"
-                :editing="!!editingPoll"
-                :onSave="savePoll"
-                :onCancel="closeForm"
+                :initial-data="editingPoll"
+                @save="savePoll"
+                @cancel="showForm = false"
             />
 
+            <p
+                v-if="mutationError"
+                class="mb-4 rounded-lg border border-red-300 bg-red-50 p-4 font-medium text-red-700"
+            >
+                {{ mutationError }}
+            </p>
+
             <div
-                v-if="pollsLoading && !pollsData"
+                v-if="loading && !polls"
                 class="rounded-lg bg-white p-8 text-center"
             >
                 <p class="text-gray-600">Chargement de vos sondages...</p>
             </div>
 
             <div
-                v-else-if="pollsError"
+                v-else-if="error"
                 class="rounded-lg border border-red-300 bg-red-50 p-4"
             >
                 <p class="text-red-700">
-                    Erreur lors du chargement des sondages
+                    Erreur lors du chargement des sondages.
                 </p>
-                <p v-if="pollsError.data" class="mt-2 text-sm text-red-600">
-                    {{ pollsError.data.message }}
+                <p v-if="error.data" class="mt-2 text-sm text-red-600">
+                    {{ error.data.message }}
                 </p>
             </div>
 
             <div
-                v-else-if="!pollsData || pollsData.length === 0"
+                v-else-if="!polls?.length"
                 class="rounded-lg border border-dashed border-gray-300 bg-white p-12 text-center"
             >
                 <p class="text-gray-500">
@@ -114,41 +119,33 @@ async function removePoll(poll) {
             </div>
 
             <div v-else class="space-y-8">
-                <section v-if="drafts.length > 0">
-                    <h2 class="mb-4 text-xl font-semibold text-gray-900">
-                        Brouillons
-                        <span class="text-gray-500">({{ drafts.length }})</span>
-                    </h2>
-                    <PollTable
-                        :polls="drafts"
-                        :onEdit="openEdit"
-                        :onDelete="removePoll"
-                    />
-                </section>
-
-                <section v-if="active.length > 0">
-                    <h2 class="mb-4 text-xl font-semibold text-gray-900">
-                        Sondages actifs
-                        <span class="text-gray-500">({{ active.length }})</span>
-                    </h2>
-                    <PollTable
-                        :polls="active"
-                        :onEdit="openEdit"
-                        :onDelete="removePoll"
-                    />
-                </section>
-
-                <section v-if="ended.length > 0">
-                    <h2 class="mb-4 text-xl font-semibold text-gray-900">
-                        Sondages terminés
-                        <span class="text-gray-500">({{ ended.length }})</span>
-                    </h2>
-                    <PollTable
-                        :polls="ended"
-                        :onEdit="openEdit"
-                        :onDelete="removePoll"
-                    />
-                </section>
+                <PollSection
+                    title="Brouillons"
+                    :polls="drafts"
+                    can-launch
+                    @edit="openEdit"
+                    @delete="removePoll"
+                    @launch="launch"
+                />
+                <PollSection
+                    title="Programmés"
+                    :polls="scheduled"
+                    @edit="openEdit"
+                    @delete="removePoll"
+                    @launch="launch"
+                />
+                <PollSection
+                    title="Sondages actifs"
+                    :polls="active"
+                    @edit="openEdit"
+                    @delete="removePoll"
+                />
+                <PollSection
+                    title="Sondages terminés"
+                    :polls="ended"
+                    @edit="openEdit"
+                    @delete="removePoll"
+                />
             </div>
         </div>
     </main>

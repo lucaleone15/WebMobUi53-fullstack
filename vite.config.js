@@ -11,6 +11,7 @@ export default defineConfig({
                 'resources/css/app.css',
                 'resources/js/poll-dashboard.js',
                 'resources/js/poll-dashboard-integrated.js',
+                'resources/js/poll-show.js',
             ],
             refresh: true,
         }),
